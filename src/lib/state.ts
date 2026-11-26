@@ -94,13 +94,12 @@ export async function resetDemo(sql: Sql, now: Date): Promise<{ seeded: number }
     await tx`delete from staff_tasks`;
     await tx`delete from calls`;
     await tx`delete from appointments`;
-    for (const d of DENTISTS) {
-      await tx`insert into dentists (id, name) values (${d.id}, ${d.name}) on conflict (id) do update set name = excluded.name`;
-    }
+    await tx`insert into dentists ${tx(DENTISTS.map((d) => ({ id: d.id, name: d.name })))} on conflict (id) do update set name = excluded.name`;
 
     let seeded = 0;
     let day = DateTime.fromJSDate(now, { zone: CLINIC.timezone }).startOf("day");
     const busy: { dentistId: string; start: Date; end: Date }[] = [];
+    const rows: Record<string, string | Date | boolean>[] = [];
     // Fill roughly every third open slot on the next 4 open days, so the schedule looks lived-in
     // but there is plenty of room left to book.
     for (let daysUsed = 0, guard = 0; daysUsed < 4 && guard < 14; guard++, day = day.plus({ days: 1 })) {
@@ -114,13 +113,16 @@ export async function resetDemo(sql: Sql, now: Date): Promise<{ seeded: number }
         if (busy.some((b) => b.dentistId === s.dentistId && b.start < end && b.end > s.start)) continue;
         const fits = openSlotsOnDay(day, type, busy, now, DENTISTS.filter((d) => d.id === s.dentistId)).some((x) => x.local === s.local);
         if (!fits) continue;
-        await tx`
-          insert into appointments (code, dentist_id, patient_name, phone, appointment_type, starts_at, ends_at, seeded)
-          values (${newCode()}, ${s.dentistId}, ${SEED_PATIENTS[seeded % SEED_PATIENTS.length]}, ${"555010" + String(1000 + seeded).slice(-4)}, ${type}, ${s.start}, ${end}, true)`;
+        rows.push({
+          code: newCode(), dentist_id: s.dentistId, patient_name: SEED_PATIENTS[seeded % SEED_PATIENTS.length],
+          phone: "555010" + String(1000 + seeded).slice(-4), appointment_type: type, starts_at: s.start, ends_at: end, seeded: true,
+        });
         busy.push({ dentistId: s.dentistId, start: s.start, end });
         seeded++;
       }
     }
+    // One round trip for the whole demo week (codes are random; a collision just fails this reset, retried next run).
+    if (rows.length) await tx`insert into appointments ${tx(rows)}`;
     return { seeded };
   });
 }

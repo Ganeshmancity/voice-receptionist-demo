@@ -160,7 +160,7 @@ describe.skipIf(!url)("with Postgres", () => {
     expect(state.calls[0].outcomes.sort()).toEqual(["booked", "flagged"]);
     expect(state.calls[0].transcript).toContain("[phone number]");
     expect(state.tasks[0].phone).toBe("•••• ••07");
-    expect(state.appointments[0].patient).toBe("Test C.");
+    expect(state.appointments[0].patient).toBe("Test 7."); // "Test Caller 7" -> first name + last initial
   });
 
   it("seeds a believable demo schedule without overlaps", async () => {
