@@ -35,6 +35,8 @@ export function CallPanel({ onActiveChange, onToolResult }: { onActiveChange: (a
   const [error, setError] = useState<string | null>(null);
   const vapiRef = useRef<Vapi | null>(null);
   const idRef = useRef(0);
+  const liveRef = useRef(false); // call connected (so a later Daily "ejection" error is just the call ending)
+  const toolStartedAt = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const configured = Boolean(PUBLIC_KEY && ASSISTANT_ID);
 
@@ -50,10 +52,12 @@ export function CallPanel({ onActiveChange, onToolResult }: { onActiveChange: (a
     const vapi = new VapiCtor(PUBLIC_KEY!);
 
     vapi.on("call-start", () => {
+      liveRef.current = true;
       setStatus("live");
       onActiveChange(true);
     });
     vapi.on("call-end", () => {
+      liveRef.current = false;
       setStatus("ended");
       setActivity(null);
       setVolume(0);
@@ -61,13 +65,30 @@ export function CallPanel({ onActiveChange, onToolResult }: { onActiveChange: (a
     });
     vapi.on("volume-level", (v: number) => setVolume(v));
     vapi.on("error", (e: unknown) => {
+      if (liveRef.current) {
+        // Vapi ended a connected call (silence timeout, time cap, assistant hung up): not a failure.
+        liveRef.current = false;
+        setStatus("ended");
+        setActivity(null);
+        setVolume(0);
+        onActiveChange(false);
+        return;
+      }
       console.error("[vapi]", e);
       setError("The call couldn't connect. Check microphone permission and try again.");
       setStatus("error");
       onActiveChange(false);
     });
+    const toolDone = () => {
+      toolStartedAt.current = 0;
+      setActivity(null);
+      onToolResult();
+    };
     vapi.on("message", (m: Record<string, unknown>) => {
+      if (process.env.NODE_ENV !== "production" || (globalThis as { __vapiDebug?: boolean }).__vapiDebug) console.debug("[vapi:msg]", m.type);
       if (m.type === "transcript") {
+        // Backstop: once Riley speaks a final sentence well after the tool started, the tool has answered.
+        if (m.role === "assistant" && m.transcriptType === "final" && toolStartedAt.current && Date.now() - toolStartedAt.current > 2500) toolDone();
         const role = m.role === "assistant" ? "assistant" : "user";
         const text = String(m.transcript ?? "");
         const final = m.transcriptType === "final";
@@ -81,10 +102,12 @@ export function CallPanel({ onActiveChange, onToolResult }: { onActiveChange: (a
       } else if (m.type === "tool-calls") {
         const list = (m.toolCallList as { function?: { name?: string } }[] | undefined) ?? [];
         const name = list[0]?.function?.name;
-        if (name) setActivity(TOOL_LABELS[name] ?? "Working");
-      } else if (m.type === "tool-calls-result") {
-        setActivity(null);
-        onToolResult();
+        if (name) {
+          toolStartedAt.current = Date.now();
+          setActivity(TOOL_LABELS[name] ?? "Working");
+        }
+      } else if (m.type === "tool-calls-result" || m.type === "tool.completed") {
+        toolDone();
       }
     });
     vapiRef.current = vapi;

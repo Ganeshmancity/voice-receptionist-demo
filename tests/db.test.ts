@@ -92,6 +92,15 @@ describe.skipIf(!url)("with Postgres", () => {
     expect("result" in bad && bad.result).toContain("Missing or invalid details");
   });
 
+  it("refuses a staff hand-off without a callback number", async () => {
+    const r = await runToolCall(sql, { id: "f1", name: "flag_for_staff", arguments: { urgency: "callback", reason: "Billing question about last visit" } }, NOW);
+    expect("result" in r && r.result).toMatch(/^NOT LOGGED/);
+    const ok = await runToolCall(sql, { id: "f2", name: "flag_for_staff", arguments: { urgency: "emergency", reason: "Severe pain, swollen jaw", phone: "(415) 555-0199" } }, NOW);
+    expect("result" in ok && ok.result).toMatch(/URGENT/);
+    const tasks = await sql`select urgency, phone from staff_tasks`;
+    expect(tasks).toEqual([{ urgency: "emergency", phone: "4155550199" }]);
+  });
+
   it("moves an appointment atomically, and keeps it if the new time is taken", async () => {
     const booked = await bookAppointment(sql, { ...caller(1), appointment_type: "checkup", start: "2026-12-01T09:00", dentist_id: "dr-patel" }, { now: NOW });
     if (booked.kind !== "booked") throw new Error("setup failed");

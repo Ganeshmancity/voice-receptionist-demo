@@ -8,6 +8,7 @@ import {
   checkAvailability,
   findAppointments,
   flagForStaff,
+  normalizePhone,
   rescheduleAppointment,
   type Appointment,
 } from "./booking";
@@ -114,16 +115,16 @@ export const toolDefinitions: { name: ToolName; description: string; parameters:
   {
     name: "flag_for_staff",
     description:
-      "Hand off to a human. urgency=emergency for severe pain, swelling, a knocked-out tooth or bleeding that won't stop (also offer the earliest emergency slot). urgency=callback for billing, insurance, complaints, or anything you can't handle.",
+      "Hand off to a human. Get the caller's phone number first. urgency=emergency for severe pain, swelling, a knocked-out tooth or bleeding that won't stop (also offer the earliest emergency slot). urgency=callback for billing, insurance, complaints, or anything you can't handle.",
     parameters: {
       type: "object",
       properties: {
         urgency: { type: "string", enum: ["emergency", "callback"] },
         reason: { type: "string", description: "One or two sentences a staff member can act on" },
         patient_name: { type: "string" },
-        phone: { type: "string" },
+        phone: { type: "string", description: "Caller's phone number (required: staff call back on it)" },
       },
-      required: ["urgency", "reason"],
+      required: ["urgency", "reason", "phone"],
     },
   },
 ];
@@ -209,6 +210,13 @@ async function execute(sql: Sql, name: ToolName, input: unknown, ctx: { now: Dat
     }
     case "flag_for_staff": {
       const a = schemas.flag_for_staff.parse(input);
+      // A hand-off nobody can act on is worse than none: staff must have a number to call back.
+      if (!a.phone || !normalizePhone(a.phone)) {
+        return {
+          text: "NOT LOGGED: staff need the caller's phone number to call back. Ask for it, read it back, then call flag_for_staff again.",
+          outcome: "rejected",
+        };
+      }
       await flagForStaff(sql, a, callId);
       return {
         text: a.urgency === "emergency"
