@@ -92,6 +92,16 @@ describe.skipIf(!url)("with Postgres", () => {
     expect("result" in bad && bad.result).toContain("Missing or invalid details");
   });
 
+  it("only offers times that are still bookable a few minutes later", async () => {
+    // NOW is 08:00; 09:00 meets the 60-minute rule but would expire mid-call, so it isn't offered.
+    const r = await runToolCall(sql, { id: "a1", name: "check_availability", arguments: { appointment_type: "checkup", date: "2026-11-30" } }, NOW);
+    expect("result" in r && r.result).not.toContain("start=2026-11-30T09:00");
+    expect("result" in r && r.result).toContain("start=2026-11-30T09:30");
+    const later = new Date(NOW.getTime() + 9 * 60_000); // caller accepts the first offer 9 minutes later
+    const b = await bookAppointment(sql, { ...caller(1), appointment_type: "checkup", start: "2026-11-30T09:30" }, { now: later });
+    expect(b.kind).toBe("booked");
+  });
+
   it("refuses a staff hand-off without a callback number", async () => {
     const r = await runToolCall(sql, { id: "f1", name: "flag_for_staff", arguments: { urgency: "callback", reason: "Billing question about last visit" } }, NOW);
     expect("result" in r && r.result).toMatch(/^NOT LOGGED/);

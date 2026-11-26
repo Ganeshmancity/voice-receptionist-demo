@@ -6,6 +6,8 @@ export const CLINIC = {
   slotMinutes: 30,
   /** Earliest bookable start, measured from "now". */
   minLeadMinutes: 60,
+  /** Extra margin on times we OFFER, so an offered time is still bookable when the caller says yes. */
+  offerBufferMinutes: 10,
   /** How far ahead callers can book. */
   maxDaysAhead: 30,
   address: "1200 Northgate Ave, Suite 4 (demo address)",

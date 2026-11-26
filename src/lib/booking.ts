@@ -66,6 +66,9 @@ export type AvailabilityResult =
   | { kind: "unknown_dentist" }
   | { kind: "bad_date" };
 
+/** Times we offer start a little later than the booking rule allows (see CLINIC.offerBufferMinutes). */
+const offerFrom = (now: Date) => new Date(now.getTime() + CLINIC.offerBufferMinutes * 60_000);
+
 export async function checkAvailability(
   sql: Sql,
   args: { appointment_type: AppointmentType; date?: string; dentist_id?: string },
@@ -78,14 +81,14 @@ export async function checkAvailability(
   if (args.date) {
     const day = parseLocalDate(args.date);
     if (!day) return { kind: "bad_date" };
-    const sameDay = findSlots({ type: args.appointment_type, busy, now, fromDate: day, dentists, singleDay: true, limit: 6 });
+    const sameDay = findSlots({ type: args.appointment_type, busy, now: offerFrom(now), fromDate: day, dentists, singleDay: true, limit: 6 });
     if (sameDay.length && sameDay[0].local.startsWith(args.date)) {
       return { kind: "slots", requestedDate: args.date, onRequestedDay: true, slots: sameDay };
     }
-    const later = findSlots({ type: args.appointment_type, busy, now, fromDate: day.plus({ days: 1 }), dentists, limit: 4 });
+    const later = findSlots({ type: args.appointment_type, busy, now: offerFrom(now), fromDate: day.plus({ days: 1 }), dentists, limit: 4 });
     return { kind: "slots", requestedDate: args.date, onRequestedDay: false, slots: later };
   }
-  return { kind: "slots", onRequestedDay: false, slots: findSlots({ type: args.appointment_type, busy, now, dentists, limit: 6 }) };
+  return { kind: "slots", onRequestedDay: false, slots: findSlots({ type: args.appointment_type, busy, now: offerFrom(now), dentists, limit: 6 }) };
 }
 
 // â”€â”€â”€ Booking â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -116,7 +119,7 @@ async function insertAppointment(
 
 async function alternativesNear(sql: Sql, type: AppointmentType, start: DateTime, now: Date, dentists: Dentist[]): Promise<Slot[]> {
   const busy = await busyBlocks(sql, now);
-  return findSlots({ type, busy, now, fromDate: start.startOf("day"), dentists, limit: 3 });
+  return findSlots({ type, busy, now: offerFrom(now), fromDate: start.startOf("day"), dentists, limit: 3 });
 }
 
 export async function bookAppointment(
@@ -232,7 +235,7 @@ export async function rescheduleAppointment(
       const fit = pool.find((d) => checkFit(start, type, d, busy, now) === null);
       if (!fit) {
         const reason = checkFit(start, type, pool[0], busy, now) ?? "busy";
-        return { kind: "rejected", reason, alternatives: findSlots({ type, busy, now, fromDate: start.startOf("day"), dentists: pool, limit: 3 }) } as const;
+        return { kind: "rejected", reason, alternatives: findSlots({ type, busy, now: offerFrom(now), fromDate: start.startOf("day"), dentists: pool, limit: 3 }) } as const;
       }
 
       await tx`update appointments set status = 'cancelled', updated_at = now() where id = ${old.id}`;
@@ -251,7 +254,7 @@ export async function rescheduleAppointment(
   } catch (e) {
     if (e instanceof SlotTaken) {
       const busy = await busyBlocks(sql, now);
-      return { kind: "rejected", reason: "busy", alternatives: findSlots({ type: apptType, busy, now, fromDate: start.startOf("day"), limit: 3 }) };
+      return { kind: "rejected", reason: "busy", alternatives: findSlots({ type: apptType, busy, now: offerFrom(now), fromDate: start.startOf("day"), limit: 3 }) };
     }
     throw e;
   }
