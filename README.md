@@ -1,5 +1,7 @@
 # AI Voice Receptionist: books real appointments
 
+**Live demo:** https://voice-receptionist-demo-ebon.vercel.app (click the phone button and talk; uses your microphone, calls capped at 4 minutes)
+
 A phone-style AI receptionist for a (fictional) dental clinic. You talk to it in the browser; it checks a real
 schedule, books, reschedules and cancels visits, and hands urgent or off-script calls to staff. The schedule,
 staff alerts and call log on the page update live from Postgres while you talk.
